@@ -131,25 +131,19 @@ svg.viz-pane {
 .scene-3d-viewport {
   width: 100%;
   height: calc(100% - 2.3rem);
-  min-height: 480px;
-  perspective: 1500px;
-  cursor: grab;
+  min-height: 520px;
   touch-action: none;
   user-select: none;
   overflow: hidden;
 }
 
-.scene-3d-viewport:active { cursor: grabbing; }
-
-.scene-3d-inner {
+.three-canvas {
   width: 100%;
   height: 100%;
-  transform-style: preserve-3d;
-  transform-origin: 50% 55%;
-  will-change: transform;
+  min-height: 520px;
 }
 
-.scene-3d-inner svg {
+.three-canvas canvas {
   width: 100%;
   height: 100%;
   display: block;
@@ -213,5 +207,5 @@ svg.viz-pane {
   .view-toggle { width: 100%; }
   .view-btn { flex: 1; min-width: 130px; }
   .canvas-wrap { padding: 0.45rem; }
-  .scene-3d-viewport { min-height: 340px; }
+  .scene-3d-viewport, .three-canvas { min-height: 360px; }
 }

@@ -1,3 +1,6 @@
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js";
+import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/controls/OrbitControls.js";
+
 const app = document.querySelector('#app');
 
 app.innerHTML = `
@@ -25,11 +28,9 @@ app.innerHTML = `
         <div class="canvas-wrap container-heatmap">
           <canvas id="heatCanvas" class="viz-pane" width="900" height="900"></canvas>
           <div id="isoStage" class="iso-stage viz-pane is-hidden" aria-label="3D isometric airflow">
-            <p class="scene-hint">拖曳可旋轉視角</p>
+            <p class="scene-hint">拖曳旋轉｜雙指或滾輪縮放｜雙指拖曳平移</p>
             <div id="scene3dViewport" class="scene-3d-viewport">
-              <div id="scene3dInner" class="scene-3d-inner">
-                <svg id="isoView" viewBox="0 0 900 620" preserveAspectRatio="xMidYMid meet"></svg>
-              </div>
+              <div id="threeCanvas" class="three-canvas"></div>
             </div>
             <button id="resetViewBtn" class="reset-view-btn" type="button">重設視角</button>
           </div>
@@ -119,75 +120,67 @@ const HOTSPOT_THRESHOLD = 30;
 
 const canvas = document.querySelector('#heatCanvas');
 const ctx = canvas.getContext('2d');
-const isoView = document.querySelector('#isoView');
 const isoStage = document.querySelector('#isoStage');
 const scene3dViewport = document.querySelector('#scene3dViewport');
-const scene3dInner = document.querySelector('#scene3dInner');
+const threeCanvas = document.querySelector('#threeCanvas');
 const resetViewBtn = document.querySelector('#resetViewBtn');
 const controls = document.querySelector('#controls');
 const statsEl = document.querySelector('#stats');
 const interpretationEl = document.querySelector('#interpretation');
 const heightCardEl = document.querySelector('#heightCard');
 const viewButtons = Array.from(document.querySelectorAll('.view-btn'));
-const camera = { rotateX: -42, rotateZ: -38 };
-const CAMERA_DEFAULT = { rotateX: -42, rotateZ: -38 };
-const CAMERA_LIMITS = { minX: -70, maxX: -20 };
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function applySceneCamera() {
-  scene3dInner.style.transform = `rotateX(${camera.rotateX.toFixed(2)}deg) rotateZ(${camera.rotateZ.toFixed(2)}deg)`;
+let threeRenderer;
+let threeScene;
+let threeCamera;
+let threeControls;
+let threeRootGroup;
+
+function resetCamera() {
+  if (!threeCamera || !threeControls) return;
+  const radius = Math.max(state.roomWidth, state.roomDepth) * 1.25;
+  threeCamera.position.set(state.roomWidth * 0.5 + radius * 0.8, radius * 0.95, state.roomDepth * 0.5 + radius * 0.8);
+  threeControls.target.set(state.roomWidth * 0.5, 1.8, state.roomDepth * 0.5);
+  threeControls.update();
 }
 
-function resetSceneCamera() {
-  camera.rotateX = CAMERA_DEFAULT.rotateX;
-  camera.rotateZ = CAMERA_DEFAULT.rotateZ;
-  applySceneCamera();
-}
-
-function bind3DInteractions() {
-  let dragging = false;
-  let pointerId = null;
-  let lastX = 0;
-  let lastY = 0;
-  const horizontalSpeed = 0.22;
-  const verticalSpeed = 0.2;
-
-  const onDown = (event) => {
-    dragging = true;
-    pointerId = event.pointerId;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    scene3dViewport.setPointerCapture(pointerId);
+function initThreeScene() {
+  threeScene = new THREE.Scene();
+  threeScene.background = new THREE.Color('#0a1120');
+  threeScene.fog = new THREE.Fog('#0a1120', 25, 72);
+  threeCamera = new THREE.PerspectiveCamera(52, 1, 0.1, 200);
+  threeRenderer = new THREE.WebGLRenderer({ antialias: true });
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  threeCanvas.appendChild(threeRenderer.domElement);
+  const hemi = new THREE.HemisphereLight(0xa5c8ff, 0x11151f, 1.2);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(15, 22, 8);
+  threeScene.add(hemi, dir);
+  threeRootGroup = new THREE.Group();
+  threeScene.add(threeRootGroup);
+  threeControls = new OrbitControls(threeCamera, threeRenderer.domElement);
+  threeControls.enableDamping = true;
+  threeControls.dampingFactor = 0.06;
+  threeControls.minDistance = 6;
+  threeControls.maxDistance = 70;
+  threeControls.maxPolarAngle = Math.PI / 2.06;
+  threeControls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  threeControls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+  const resize = () => {
+    const w = threeCanvas.clientWidth; const h = threeCanvas.clientHeight;
+    threeCamera.aspect = w / h;
+    threeCamera.updateProjectionMatrix();
+    threeRenderer.setSize(w, h);
   };
-
-  const onMove = (event) => {
-    if (!dragging || event.pointerId !== pointerId) return;
-    const dx = event.clientX - lastX;
-    const dy = event.clientY - lastY;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    camera.rotateZ += dx * horizontalSpeed;
-    camera.rotateX = clamp(camera.rotateX + dy * verticalSpeed, CAMERA_LIMITS.minX, CAMERA_LIMITS.maxX);
-    applySceneCamera();
-    event.preventDefault();
-  };
-
-  const onUp = (event) => {
-    if (event.pointerId !== pointerId) return;
-    dragging = false;
-    scene3dViewport.releasePointerCapture(pointerId);
-    pointerId = null;
-  };
-
-  scene3dViewport.addEventListener('pointerdown', onDown);
-  scene3dViewport.addEventListener('pointermove', onMove);
-  scene3dViewport.addEventListener('pointerup', onUp);
-  scene3dViewport.addEventListener('pointercancel', onUp);
-  resetViewBtn.addEventListener('click', resetSceneCamera);
-  resetSceneCamera();
+  window.addEventListener('resize', resize);
+  resize();
+  const animate = () => { requestAnimationFrame(animate); threeControls.update(); threeRenderer.render(threeScene, threeCamera); };
+  animate();
+  resetViewBtn.addEventListener('click', resetCamera);
 }
 
 function createControls() {
@@ -618,128 +611,27 @@ function drawMap(fieldData) {
   drawAirflowAnnotations(toCanvas, mapW, mapH, margin, racks);
 }
 
-function isoProject(x, y, z = 0) {
-  const scale = 18;
-  const ox = 450;
-  const oy = 440;
-  return {
-    x: ox + (x - y) * scale,
-    y: oy + (x + y) * scale * 0.52 - z * scale
-  };
-}
-
-function tempAt(field, x, y) {
-  const gx = clamp(Math.round((x / state.roomWidth) * (gridSize - 1)), 0, gridSize - 1);
-  const gy = clamp(Math.round((y / state.roomDepth) * (gridSize - 1)), 0, gridSize - 1);
-  return field[gy][gx];
-}
-
-function poly(points, cls, fill) {
-  const p = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-  p.setAttribute('points', points.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' '));
-  if (cls) p.setAttribute('class', cls);
-  if (fill) p.setAttribute('fill', fill);
-  return p;
-}
-
-function addIsoArrow(group, from, to, color) {
-  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  line.setAttribute('x1', from.x);
-  line.setAttribute('y1', from.y);
-  line.setAttribute('x2', to.x);
-  line.setAttribute('y2', to.y);
-  line.setAttribute('stroke', color);
-  line.setAttribute('stroke-width', '3');
-  line.setAttribute('marker-end', `url(${color.includes('66') ? '#arrowHot' : '#arrowCold'})`);
-  group.appendChild(line);
-}
-
-function renderIso(fieldData) {
-  const { field, racks } = fieldData;
-  isoView.innerHTML = `
-    <defs>
-      <marker id="arrowCold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0,0 8,4 0,8" fill="#68c4ff"/></marker>
-      <marker id="arrowHot" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0,0 8,4 0,8" fill="#ff7b4f"/></marker>
-    </defs>
-  `;
-
-  const floor = [isoProject(0, 0, 0), isoProject(state.roomWidth, 0, 0), isoProject(state.roomWidth, state.roomDepth, 0), isoProject(0, state.roomDepth, 0)];
-  isoView.appendChild(poly(floor, '', 'rgba(36,60,95,0.55)'));
-
-  const tempLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  for (let y = 0; y < state.roomDepth; y += 2) {
-    for (let x = 0; x < state.roomWidth; x += 2) {
-      const t = tempAt(field, x + 1, y + 1);
-      tempLayer.appendChild(poly([isoProject(x, y, 0.01), isoProject(x + 2, y, 0.01), isoProject(x + 2, y + 2, 0.01), isoProject(x, y + 2, 0.01)], '', tempColor(t)));
-    }
-  }
-  tempLayer.setAttribute('opacity', '0.48');
-  isoView.appendChild(tempLayer);
-
-  const rackHeightScale = 2.2 + ((state.rackHeight - 42) / 10) * 1.2;
-  const rackGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  racks.forEach((rack) => {
-    const x0 = rack.x - rack.width / 2;
-    const x1 = rack.x + rack.width / 2;
-    const y0 = rack.y - rack.depth / 2;
-    const y1 = rack.y + rack.depth / 2;
-    const z = rackHeightScale;
-    rackGroup.appendChild(poly([isoProject(x0, y0, z), isoProject(x1, y0, z), isoProject(x1, y1, z), isoProject(x0, y1, z)], 'rack-top', '#242d3f'));
-    rackGroup.appendChild(poly([isoProject(x1, y0, 0), isoProject(x1, y1, 0), isoProject(x1, y1, z), isoProject(x1, y0, z)], 'rack-side', '#1b2230'));
-    rackGroup.appendChild(poly([isoProject(x0, y1, 0), isoProject(x1, y1, 0), isoProject(x1, y1, z), isoProject(x0, y1, z)], 'rack-front', '#11161f'));
-  });
-  isoView.appendChild(rackGroup);
-
-  const aisleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  getColdAisles().forEach((aisle) => {
-    aisleGroup.appendChild(poly([isoProject(aisle.leftX + 0.4, 0.8, 0.02), isoProject(aisle.rightX - 0.4, 0.8, 0.02), isoProject(aisle.rightX - 0.4, state.roomDepth - 0.8, 0.02), isoProject(aisle.leftX + 0.4, state.roomDepth - 0.8, 0.02)], '', 'rgba(102,214,140,0.32)'));
-    if (state.airflowMode === 'underfloor') {
-      for (let y = 1.4; y < state.roomDepth - 1.1; y += 2.2) {
-        aisleGroup.appendChild(poly([isoProject(aisle.centerX - 0.34, y, 0.03), isoProject(aisle.centerX + 0.34, y, 0.03), isoProject(aisle.centerX + 0.34, y + 0.6, 0.03), isoProject(aisle.centerX - 0.34, y + 0.6, 0.03)], '', 'rgba(140,214,255,0.55)'));
-      }
-    }
-  });
-  isoView.appendChild(aisleGroup);
-
-  const anno = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  const addLabel = (x, y, text) => {
-    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('x', x);
-    t.setAttribute('y', y);
-    t.setAttribute('fill', '#e8f2ff');
-    t.setAttribute('font-size', '14');
-    t.textContent = text;
-    anno.appendChild(t);
-  };
-
-  if (state.airflowMode === 'underfloor') {
-    getColdAisles().forEach((aisle) => {
-      addIsoArrow(anno, isoProject(aisle.centerX, state.roomDepth * 0.25, 0.05), isoProject(aisle.centerX, state.roomDepth * 0.25, 2.3), '#68c4ff');
-      addIsoArrow(anno, isoProject(aisle.centerX + 0.5, state.roomDepth * 0.55, 1.2), isoProject(aisle.centerX + 0.5, state.roomDepth * 0.55, 3.5), '#ff7b4f66');
-    });
-    const p = isoProject(state.roomWidth - 1.5, state.roomDepth - 2, 3.6);
-    addLabel(p.x, p.y, '上方回風區');
-  } else if (state.airflowMode === 'sidewall') {
-    addIsoArrow(anno, isoProject(0.8, state.roomDepth * 0.3, 1.4), isoProject(4.5, state.roomDepth * 0.3, 1.4), '#68c4ff');
-    addIsoArrow(anno, isoProject(0.8, state.roomDepth * 0.6, 1.4), isoProject(4.5, state.roomDepth * 0.6, 1.4), '#68c4ff');
-    addLabel(isoProject(0.2, state.roomDepth * 0.2, 1.2).x, isoProject(0.2, state.roomDepth * 0.2, 1.2).y, '左牆 AHU / CRAH');
-    addLabel(isoProject(state.roomWidth - 1.2, state.roomDepth * 0.4, 1.2).x, isoProject(state.roomWidth - 1.2, state.roomDepth * 0.4, 1.2).y, '右側回風區');
-  } else if (state.airflowMode === 'endtoend') {
-    addIsoArrow(anno, isoProject(state.roomWidth * 0.3, 0.6, 1.2), isoProject(state.roomWidth * 0.3, state.roomDepth * 0.56, 1.2), '#68c4ff');
-    addIsoArrow(anno, isoProject(state.roomWidth * 0.6, 0.6, 1.2), isoProject(state.roomWidth * 0.6, state.roomDepth * 0.56, 1.2), '#68c4ff');
-    addLabel(isoProject(state.roomWidth * 0.46, 0.3, 1.1).x, isoProject(state.roomWidth * 0.46, 0.3, 1.1).y, '走道端送風設備');
-    addLabel(isoProject(state.roomWidth * 0.52, state.roomDepth - 0.8, 1.1).x, isoProject(state.roomWidth * 0.52, state.roomDepth - 0.8, 1.1).y, '另一端回風區');
-  } else {
-    racks.slice(0, Math.min(racks.length, 16)).forEach((rack) => {
-      addIsoArrow(anno, isoProject(rack.x - rack.frontDirX * 0.8, rack.y, 1.0), isoProject(rack.x - rack.frontDirX * 0.2, rack.y, 1.0), '#68c4ff');
-      addIsoArrow(anno, isoProject(rack.x + rack.frontDirX * 0.2, rack.y, 1.0), isoProject(rack.x + rack.frontDirX * 0.8, rack.y, 1.0), '#ff7b4f66');
-    });
-    addLabel(isoProject(state.roomWidth * 0.45, 0.5, 1.2).x, isoProject(state.roomWidth * 0.45, 0.5, 1.2).y, '前送後回（機櫃層級）');
-  }
-
-  addLabel(24, 30, `3D 示意模式：${airflowModes[state.airflowMode]}`);
-  addLabel(24, 52, `機櫃高度：${state.rackHeight}U（僅視覺比例）`);
-  isoView.appendChild(anno);
+function updateThreeScene(fieldData) {
+  if (!threeRootGroup) return;
+  threeRootGroup.clear();
+  const { racks } = fieldData;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(state.roomWidth, state.roomDepth), new THREE.MeshStandardMaterial({ color: 0x22324e, side: THREE.DoubleSide }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(state.roomWidth / 2, 0, state.roomDepth / 2);
+  threeRootGroup.add(floor);
+  const coldAisles = getColdAisles();
+  coldAisles.forEach((a)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.1,a.rightX-a.leftX-0.8),0.03,state.roomDepth-1.6),new THREE.MeshStandardMaterial({color:0x3aa86f,transparent:true,opacity:0.5})); m.position.set(a.centerX,0.02,state.roomDepth/2); threeRootGroup.add(m);});
+  const rackH=2.1+((state.rackHeight-42)/10)*1.2;
+  racks.forEach((r)=>{const mesh=new THREE.Mesh(new THREE.BoxGeometry(r.width,rackH,r.depth),new THREE.MeshStandardMaterial({color:0x171d29})); mesh.position.set(r.x,rackH/2,r.y); threeRootGroup.add(mesh);});
+  getAirflowDevices().forEach((d)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(d.width,2.4,d.depth),new THREE.MeshStandardMaterial({color:0x97a2b4})); m.position.set(d.x,1.2,d.y); threeRootGroup.add(m);});
+  const addArrow=(from,to,color)=>{const dir=to.clone().sub(from);const len=dir.length();if(len<0.1)return;const ar=new THREE.ArrowHelper(dir.normalize(),from,len,color,0.6,0.32);threeRootGroup.add(ar);};
+  if (state.airflowMode==='underfloor') { coldAisles.forEach((a)=>{addArrow(new THREE.Vector3(a.centerX,0.05,state.roomDepth*0.25),new THREE.Vector3(a.centerX,2.2,state.roomDepth*0.25),0x4fb8ff); addArrow(new THREE.Vector3(a.centerX+0.4,1.2,state.roomDepth*0.55),new THREE.Vector3(a.centerX+0.4,3.8,state.roomDepth*0.55),0xff7b4f);}); }
+  else if (state.airflowMode==='sidewall') { [0.3,0.6].forEach((f)=>addArrow(new THREE.Vector3(0.8,1.4,state.roomDepth*f),new THREE.Vector3(4.8,1.4,state.roomDepth*f),0x4fb8ff)); }
+  else if (state.airflowMode==='endtoend') { [0.3,0.6].forEach((f)=>addArrow(new THREE.Vector3(state.roomWidth*f,1.3,0.8),new THREE.Vector3(state.roomWidth*f,1.3,state.roomDepth*0.58),0x4fb8ff)); }
+  else { racks.slice(0,18).forEach((r)=>{addArrow(new THREE.Vector3(r.x-r.frontDirX*0.8,1.2,r.y),new THREE.Vector3(r.x-r.frontDirX*0.2,1.2,r.y),0x4fb8ff); addArrow(new THREE.Vector3(r.x+r.frontDirX*0.2,1.2,r.y),new THREE.Vector3(r.x+r.frontDirX*0.8,1.2,r.y),0xff7b4f);}); }
+  const returnZone=new THREE.Mesh(new THREE.BoxGeometry(state.roomWidth*0.95,0.1,state.roomDepth*0.95),new THREE.MeshStandardMaterial({color:0x9ca3af,transparent:true,opacity:0.18}));
+  returnZone.position.set(state.roomWidth/2,4.35,state.roomDepth/2);threeRootGroup.add(returnZone);
+  resetCamera();
 }
 
 function renderStatsAndInsights(stats) {
@@ -815,12 +707,12 @@ function bindViewButtons() {
 function update() {
   const model = buildHeatField();
   drawMap(model);
-  renderIso(model);
+  updateThreeScene(model);
   renderStatsAndInsights(getStats(model.field));
   updateViewToggle();
 }
 
 createControls();
 bindViewButtons();
-bind3DInteractions();
+initThreeScene();
 update();
