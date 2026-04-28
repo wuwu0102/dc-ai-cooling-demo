@@ -1,30 +1,30 @@
 const app = document.querySelector('#app');
 
 app.innerHTML = `
-  <div class="page">
+  <div class="page container">
     <header class="header">
-      <div>
+      <div class="text-block">
         <h1>Data Center AI Cooling Demo</h1>
         <p>機房冷卻熱場快速示意工具</p>
       </div>
-      <span class="demo-tag">DEMO</span>
+      <span class="demo-tag text-block">DEMO</span>
     </header>
 
-    <main class="layout">
-      <section class="panel" aria-label="參數面板">
+    <main class="layout main-layout">
+      <section class="panel sidebar text-block" aria-label="參數面板">
         <h2>參數設定</h2>
         <p class="model-note">簡化 AI surrogate / 熱場示意模型，非正式 CFD 驗證。</p>
         <div id="controls" class="controls"></div>
       </section>
 
-      <section class="viz-section" aria-label="熱場視覺化">
-        <div class="canvas-wrap">
+      <section class="viz-section content" aria-label="熱場視覺化">
+        <div class="canvas-wrap container-heatmap">
           <canvas id="heatCanvas" width="900" height="900"></canvas>
         </div>
-        <div id="stats" class="stats-grid"></div>
-        <section class="interpretation" id="interpretation"></section>
-        <section class="legend" aria-label="圖例與高度示意">
-          <div class="legend-block">
+        <div id="stats" class="stats-grid cards"></div>
+        <section class="interpretation analysis text-block" id="interpretation"></section>
+        <section class="legend text-block" aria-label="圖例與高度示意">
+          <div class="legend-block text-block">
             <h3>圖例 / Legend</h3>
             <ul>
               <li><span class="chip chip-blue"></span>藍色：冷區</li>
@@ -39,7 +39,7 @@ app.innerHTML = `
               <li><span class="legend-rack"></span>黑色長方形：機櫃</li>
             </ul>
           </div>
-          <div id="heightCard" class="height-card"></div>
+          <div id="heightCard" class="height-card text-block"></div>
         </section>
       </section>
     </main>
