@@ -1,6 +1,3 @@
-import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js";
-import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/controls/OrbitControls.js";
-
 const app = document.querySelector('#app');
 
 app.innerHTML = `
@@ -31,6 +28,7 @@ app.innerHTML = `
             <p class="scene-hint">拖曳旋轉｜雙指或滾輪縮放｜雙指拖曳平移</p>
             <div id="scene3dViewport" class="scene-3d-viewport">
               <div id="threeCanvas" class="three-canvas"></div>
+              <div id="threeFallback" class="three-fallback is-hidden" role="status">3D 模型載入失敗，請重新整理或切回 2D</div>
             </div>
             <button id="resetViewBtn" class="reset-view-btn" type="button">重設視角</button>
           </div>
@@ -124,6 +122,7 @@ const isoStage = document.querySelector('#isoStage');
 const scene3dViewport = document.querySelector('#scene3dViewport');
 const threeCanvas = document.querySelector('#threeCanvas');
 const resetViewBtn = document.querySelector('#resetViewBtn');
+const threeFallback = document.querySelector('#threeFallback');
 const controls = document.querySelector('#controls');
 const statsEl = document.querySelector('#stats');
 const interpretationEl = document.querySelector('#interpretation');
@@ -140,6 +139,21 @@ let threeCamera;
 let threeControls;
 let threeRootGroup;
 
+let THREE;
+let OrbitControls;
+let isThreeReady = false;
+
+function showThreeFallback() {
+  threeCanvas.innerHTML = '';
+  threeFallback.classList.remove('is-hidden');
+  resetViewBtn.classList.add('is-hidden');
+}
+
+function showThreeCanvas() {
+  threeFallback.classList.add('is-hidden');
+  resetViewBtn.classList.remove('is-hidden');
+}
+
 function resetCamera() {
   if (!threeCamera || !threeControls) return;
   const radius = Math.max(state.roomWidth, state.roomDepth) * 1.25;
@@ -148,7 +162,13 @@ function resetCamera() {
   threeControls.update();
 }
 
-function initThreeScene() {
+async function initThreeScene() {
+  if (isThreeReady) return true;
+  const threeModule = await import('https://esm.sh/three@0.160.0');
+  const controlsModule = await import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+  THREE = threeModule;
+  OrbitControls = controlsModule.OrbitControls;
+
   threeScene = new THREE.Scene();
   threeScene.background = new THREE.Color('#0a1120');
   threeScene.fog = new THREE.Fog('#0a1120', 25, 72);
@@ -181,6 +201,9 @@ function initThreeScene() {
   const animate = () => { requestAnimationFrame(animate); threeControls.update(); threeRenderer.render(threeScene, threeCamera); };
   animate();
   resetViewBtn.addEventListener('click', resetCamera);
+  isThreeReady = true;
+  showThreeCanvas();
+  return true;
 }
 
 function createControls() {
@@ -707,12 +730,23 @@ function bindViewButtons() {
 function update() {
   const model = buildHeatField();
   drawMap(model);
-  updateThreeScene(model);
+  if (isThreeReady) updateThreeScene(model);
   renderStatsAndInsights(getStats(model.field));
   updateViewToggle();
 }
 
-createControls();
-bindViewButtons();
-initThreeScene();
-update();
+async function renderApp() {
+  createControls();
+  bindViewButtons();
+  update();
+
+  try {
+    await initThreeScene();
+    update();
+  } catch (error) {
+    console.error('Three.js initialization failed:', error);
+    showThreeFallback();
+  }
+}
+
+renderApp();
