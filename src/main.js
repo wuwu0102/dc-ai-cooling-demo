@@ -24,7 +24,15 @@ app.innerHTML = `
         </div>
         <div class="canvas-wrap container-heatmap">
           <canvas id="heatCanvas" class="viz-pane" width="900" height="900"></canvas>
-          <svg id="isoView" class="viz-pane is-hidden" viewBox="0 0 900 620" preserveAspectRatio="xMidYMid meet" aria-label="3D isometric airflow"></svg>
+          <div id="isoStage" class="iso-stage viz-pane is-hidden" aria-label="3D isometric airflow">
+            <p class="scene-hint">拖曳可旋轉視角</p>
+            <div id="scene3dViewport" class="scene-3d-viewport">
+              <div id="scene3dInner" class="scene-3d-inner">
+                <svg id="isoView" viewBox="0 0 900 620" preserveAspectRatio="xMidYMid meet"></svg>
+              </div>
+            </div>
+            <button id="resetViewBtn" class="reset-view-btn" type="button">重設視角</button>
+          </div>
         </div>
         <div id="stats" class="stats-grid cards"></div>
         <section class="interpretation analysis text-block" id="interpretation"></section>
@@ -112,14 +120,74 @@ const HOTSPOT_THRESHOLD = 30;
 const canvas = document.querySelector('#heatCanvas');
 const ctx = canvas.getContext('2d');
 const isoView = document.querySelector('#isoView');
+const isoStage = document.querySelector('#isoStage');
+const scene3dViewport = document.querySelector('#scene3dViewport');
+const scene3dInner = document.querySelector('#scene3dInner');
+const resetViewBtn = document.querySelector('#resetViewBtn');
 const controls = document.querySelector('#controls');
 const statsEl = document.querySelector('#stats');
 const interpretationEl = document.querySelector('#interpretation');
 const heightCardEl = document.querySelector('#heightCard');
 const viewButtons = Array.from(document.querySelectorAll('.view-btn'));
+const camera = { rotateX: -42, rotateZ: -38 };
+const CAMERA_DEFAULT = { rotateX: -42, rotateZ: -38 };
+const CAMERA_LIMITS = { minX: -70, maxX: -20 };
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function applySceneCamera() {
+  scene3dInner.style.transform = `rotateX(${camera.rotateX.toFixed(2)}deg) rotateZ(${camera.rotateZ.toFixed(2)}deg)`;
+}
+
+function resetSceneCamera() {
+  camera.rotateX = CAMERA_DEFAULT.rotateX;
+  camera.rotateZ = CAMERA_DEFAULT.rotateZ;
+  applySceneCamera();
+}
+
+function bind3DInteractions() {
+  let dragging = false;
+  let pointerId = null;
+  let lastX = 0;
+  let lastY = 0;
+  const horizontalSpeed = 0.22;
+  const verticalSpeed = 0.2;
+
+  const onDown = (event) => {
+    dragging = true;
+    pointerId = event.pointerId;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    scene3dViewport.setPointerCapture(pointerId);
+  };
+
+  const onMove = (event) => {
+    if (!dragging || event.pointerId !== pointerId) return;
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    camera.rotateZ += dx * horizontalSpeed;
+    camera.rotateX = clamp(camera.rotateX + dy * verticalSpeed, CAMERA_LIMITS.minX, CAMERA_LIMITS.maxX);
+    applySceneCamera();
+    event.preventDefault();
+  };
+
+  const onUp = (event) => {
+    if (event.pointerId !== pointerId) return;
+    dragging = false;
+    scene3dViewport.releasePointerCapture(pointerId);
+    pointerId = null;
+  };
+
+  scene3dViewport.addEventListener('pointerdown', onDown);
+  scene3dViewport.addEventListener('pointermove', onMove);
+  scene3dViewport.addEventListener('pointerup', onUp);
+  scene3dViewport.addEventListener('pointercancel', onUp);
+  resetViewBtn.addEventListener('click', resetSceneCamera);
+  resetSceneCamera();
 }
 
 function createControls() {
@@ -732,7 +800,7 @@ function renderHeightCard() {
 function updateViewToggle() {
   viewButtons.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
   canvas.classList.toggle('is-hidden', state.viewMode !== '2d');
-  isoView.classList.toggle('is-hidden', state.viewMode !== '3d');
+  isoStage.classList.toggle('is-hidden', state.viewMode !== '3d');
 }
 
 function bindViewButtons() {
@@ -754,4 +822,5 @@ function update() {
 
 createControls();
 bindViewButtons();
+bind3DInteractions();
 update();
