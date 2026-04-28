@@ -18,8 +18,13 @@ app.innerHTML = `
       </section>
 
       <section class="viz-section content" aria-label="熱場視覺化">
+        <div class="view-toggle" role="tablist" aria-label="圖層切換">
+          <button type="button" class="view-btn is-active" data-view="2d">2D 平面熱圖</button>
+          <button type="button" class="view-btn" data-view="3d">3D 示意圖</button>
+        </div>
         <div class="canvas-wrap container-heatmap">
-          <canvas id="heatCanvas" width="900" height="900"></canvas>
+          <canvas id="heatCanvas" class="viz-pane" width="900" height="900"></canvas>
+          <svg id="isoView" class="viz-pane is-hidden" viewBox="0 0 900 620" preserveAspectRatio="xMidYMid meet" aria-label="3D isometric airflow"></svg>
         </div>
         <div id="stats" class="stats-grid cards"></div>
         <section class="interpretation analysis text-block" id="interpretation"></section>
@@ -51,6 +56,13 @@ const airflowModes = {
   sidewall: '牆側送風 / 對側回風',
   endtoend: '走道端送風 / 另一端回風',
   frontback: '前送後回'
+};
+
+const HELP_TEXT = {
+  coolingEfficiency:
+    '冷卻效率係數代表冷卻系統抑制溫升的能力。數值越高，代表冷源、換熱、送風組織越有效，模型中的預估溫度會下降。這是簡化示意參數，不等於真實設備 COP 或 PUE。',
+  airflowFactor:
+    '風量係數代表送風量相對基準值的比例。1.0 表示基準風量；提高到 1.5 代表假設送風能力增加約 50%。數值越高，熱量越容易被帶走，熱點應減少。此處為示意參數，非正式 CFM 計算。'
 };
 
 const schema = [
@@ -88,7 +100,8 @@ const state = {
   airflowFactor: 1.0,
   airflowMode: 'underfloor',
   rackHeight: 42,
-  coldAisleContainment: true
+  coldAisleContainment: true,
+  viewMode: '2d'
 };
 
 const gridSize = 90;
@@ -98,10 +111,12 @@ const HOTSPOT_THRESHOLD = 30;
 
 const canvas = document.querySelector('#heatCanvas');
 const ctx = canvas.getContext('2d');
+const isoView = document.querySelector('#isoView');
 const controls = document.querySelector('#controls');
 const statsEl = document.querySelector('#stats');
 const interpretationEl = document.querySelector('#interpretation');
 const heightCardEl = document.querySelector('#heightCard');
+const viewButtons = Array.from(document.querySelectorAll('.view-btn'));
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -113,15 +128,16 @@ function createControls() {
   schema.forEach((item) => {
     const row = document.createElement('label');
     row.className = 'control-row';
+    const helper = HELP_TEXT[item.key] ? `<button class="help-dot" type="button" title="${HELP_TEXT[item.key]}" aria-label="${item.label}說明">?</button>` : '';
 
     if (item.type === 'checkbox') {
       row.innerHTML = `
-        <span>${item.label}</span>
+        <span class="control-label">${item.label}</span>
         <input type="checkbox" name="${item.key}" ${state[item.key] ? 'checked' : ''} />
       `;
     } else if (item.type === 'select') {
       row.innerHTML = `
-        <span>${item.label}</span>
+        <span class="control-label">${item.label}</span>
         <select name="${item.key}">
           ${item.options
             .map((option) => `<option value="${option.value}" ${String(state[item.key]) === option.value ? 'selected' : ''}>${option.label}</option>`)
@@ -130,8 +146,9 @@ function createControls() {
       `;
     } else {
       const value = Number(state[item.key]).toFixed(item.step < 1 ? 2 : 0);
+      const hint = item.key === 'coolingEfficiency' || item.key === 'airflowFactor' ? `<p class="coef-hint" data-hint="${item.key}">${getCoefficientHint(item.key)}</p>` : '';
       row.innerHTML = `
-        <span>${item.label}</span>
+        <span class="control-label">${item.label}${helper}</span>
         <div class="input-group">
           <input
             type="${item.type}"
@@ -143,6 +160,7 @@ function createControls() {
           />
           <output>${value}</output>
         </div>
+        ${hint}
       `;
     }
 
@@ -164,13 +182,24 @@ function createControls() {
       const num = parseFloat(target.value);
       state[target.name] = clamp(Number.isFinite(num) ? num : 0, field.min, field.max);
       const output = target.parentElement?.querySelector('output');
-      if (output) {
-        output.textContent = Number(state[target.name]).toFixed(field.step < 1 ? 2 : 0);
-      }
+      if (output) output.textContent = Number(state[target.name]).toFixed(field.step < 1 ? 2 : 0);
+      const hintEl = target.closest('.control-row')?.querySelector('.coef-hint');
+      if (hintEl) hintEl.textContent = getCoefficientHint(target.name);
     }
 
     update();
   });
+}
+
+function getCoefficientHint(key) {
+  if (key === 'coolingEfficiency') {
+    if (state.coolingEfficiency < 0.6) return '冷卻能力偏弱';
+    if (state.coolingEfficiency <= 0.9) return '一般';
+    return '冷卻能力較強';
+  }
+  if (state.airflowFactor < 0.8) return '風量偏低';
+  if (state.airflowFactor <= 1.2) return '基準範圍';
+  return '風量偏高';
 }
 
 function getRowCenter(row) {
@@ -183,8 +212,7 @@ function getFrontDirX(row) {
   const rightGapX = row < state.rackRows - 1 ? (getRowCenter(row + 1) + getRowCenter(row)) / 2 : Infinity;
   const leftDistance = Math.abs(getRowCenter(row) - leftGapX);
   const rightDistance = Math.abs(rightGapX - getRowCenter(row));
-  if (rightDistance <= leftDistance) return 1;
-  return -1;
+  return rightDistance <= leftDistance ? 1 : -1;
 }
 
 function getColdAisles() {
@@ -222,7 +250,7 @@ function getAirflowDevices() {
   if (state.airflowMode === 'sidewall') {
     return [
       { x: 0.4, y: state.roomDepth * 0.2, width: 0.6, depth: 2.6, label: 'CRAH' },
-      { x: 0.4, y: state.roomDepth * 0.5, width: 0.6, depth: 2.6, label: 'CRAH' },
+      { x: 0.4, y: state.roomDepth * 0.5, width: 0.6, depth: 2.6, label: 'AHU' },
       { x: 0.4, y: state.roomDepth * 0.8, width: 0.6, depth: 2.6, label: 'CRAH' }
     ];
   }
@@ -230,7 +258,7 @@ function getAirflowDevices() {
   if (state.airflowMode === 'endtoend') {
     return [
       { x: state.roomWidth * 0.2, y: 0.5, width: 2.0, depth: 0.7, label: 'CRAC' },
-      { x: state.roomWidth * 0.5, y: 0.5, width: 2.0, depth: 0.7, label: 'CRAC' },
+      { x: state.roomWidth * 0.5, y: 0.5, width: 2.0, depth: 0.7, label: 'AHU' },
       { x: state.roomWidth * 0.8, y: 0.5, width: 2.0, depth: 0.7, label: 'CRAC' }
     ];
   }
@@ -238,8 +266,8 @@ function getAirflowDevices() {
   if (state.airflowMode === 'underfloor') {
     return [
       { x: state.roomWidth * 0.2, y: state.roomDepth - 0.35, width: 2.2, depth: 0.7, label: 'CRAC' },
-      { x: state.roomWidth * 0.5, y: state.roomDepth - 0.35, width: 2.2, depth: 0.7, label: 'CRAC' },
-      { x: state.roomWidth * 0.8, y: state.roomDepth - 0.35, width: 2.2, depth: 0.7, label: 'CRAC' }
+      { x: state.roomWidth * 0.5, y: state.roomDepth - 0.35, width: 2.2, depth: 0.7, label: 'CRAH' },
+      { x: state.roomWidth * 0.8, y: state.roomDepth - 0.35, width: 2.2, depth: 0.7, label: 'AHU' }
     ];
   }
 
@@ -323,15 +351,10 @@ function buildHeatField() {
     for (let x = 0; x < gridSize; x += 1) {
       const nx = x / (gridSize - 1);
       const ny = y / (gridSize - 1);
-      if (state.airflowMode === 'sidewall') {
-        field[y][x] += nx * (2.8 - state.airflowFactor * 1.2);
-      } else if (state.airflowMode === 'endtoend') {
-        field[y][x] += ny * (2.9 - state.airflowFactor * 1.25);
-      } else if (state.airflowMode === 'frontback') {
-        field[y][x] += nx * (1.8 - state.airflowFactor * 0.8);
-      } else {
-        field[y][x] += (0.7 - ny * 0.4) * (1.1 - state.airflowFactor * 0.3);
-      }
+      if (state.airflowMode === 'sidewall') field[y][x] += nx * (2.8 - state.airflowFactor * 1.2);
+      else if (state.airflowMode === 'endtoend') field[y][x] += ny * (2.9 - state.airflowFactor * 1.25);
+      else if (state.airflowMode === 'frontback') field[y][x] += nx * (1.8 - state.airflowFactor * 0.8);
+      else field[y][x] += (0.7 - ny * 0.4) * (1.1 - state.airflowFactor * 0.3);
     }
   }
 
@@ -355,9 +378,7 @@ function buildHeatField() {
     }
 
     for (let y = 0; y < gridSize; y += 1) {
-      for (let x = 0; x < gridSize; x += 1) {
-        field[y][x] = Math.max(state.supplyTemp - 0.5, next[y][x]);
-      }
+      for (let x = 0; x < gridSize; x += 1) field[y][x] = Math.max(state.supplyTemp - 0.5, next[y][x]);
     }
   }
 
@@ -366,10 +387,7 @@ function buildHeatField() {
 
 function tempColor(temp) {
   const t = clamp((temp - FIXED_MIN_TEMP) / (FIXED_MAX_TEMP - FIXED_MIN_TEMP), 0, 1);
-  const hue = 220 - 220 * t;
-  const sat = 86;
-  const light = 54 - 12 * t;
-  return `hsl(${hue}, ${sat}%, ${light}%)`;
+  return `hsl(${220 - 220 * t}, 86%, ${54 - 12 * t}%)`;
 }
 
 function drawArrow(sx, sy, ex, ey, width = 1.5, color = 'rgba(255,255,255,0.85)') {
@@ -397,18 +415,14 @@ function drawAirflowAnnotations(toCanvas, mapW, mapH, margin, racks) {
   const mode = state.airflowMode;
 
   if (mode === 'sidewall') {
-    for (let y = 0.16; y <= 0.84; y += 0.14) {
-      drawArrow(margin + 0.08 * mapW, margin + y * mapH, margin + 0.36 * mapW, margin + y * mapH);
-    }
+    for (let y = 0.16; y <= 0.84; y += 0.14) drawArrow(margin + 0.08 * mapW, margin + y * mapH, margin + 0.36 * mapW, margin + y * mapH);
     ctx.fillStyle = 'rgba(210, 216, 228, 0.35)';
     ctx.fillRect(margin + mapW * 0.91, margin, mapW * 0.09, mapH);
     ctx.fillStyle = 'rgba(238,245,255,0.9)';
     ctx.font = '11px sans-serif';
     ctx.fillText('對側回風區', margin + mapW * 0.92, margin + 15);
   } else if (mode === 'endtoend') {
-    for (let x = 0.16; x <= 0.84; x += 0.14) {
-      drawArrow(margin + x * mapW, margin + 0.08 * mapH, margin + x * mapW, margin + 0.34 * mapH);
-    }
+    for (let x = 0.16; x <= 0.84; x += 0.14) drawArrow(margin + x * mapW, margin + 0.08 * mapH, margin + x * mapW, margin + 0.34 * mapH);
     ctx.fillStyle = 'rgba(210, 216, 228, 0.35)';
     ctx.fillRect(margin, margin + mapH * 0.91, mapW, mapH * 0.09);
     ctx.fillStyle = 'rgba(238,245,255,0.9)';
@@ -417,14 +431,11 @@ function drawAirflowAnnotations(toCanvas, mapW, mapH, margin, racks) {
   } else if (mode === 'frontback') {
     racks.forEach((rack) => {
       const p = toCanvas(rack.x, rack.y);
-      const frontX = p.x + rack.frontDirX * -16;
-      const rearX = p.x + rack.frontDirX * 16;
-      drawArrow(frontX, p.y, p.x + rack.frontDirX * -4, p.y, 1.2, 'rgba(225,245,255,0.95)');
-      drawArrow(p.x + rack.frontDirX * 4, p.y, rearX, p.y, 1.2, 'rgba(255,166,120,0.95)');
+      drawArrow(p.x - rack.frontDirX * 16, p.y, p.x - rack.frontDirX * 4, p.y, 1.2, 'rgba(225,245,255,0.95)');
+      drawArrow(p.x + rack.frontDirX * 4, p.y, p.x + rack.frontDirX * 16, p.y, 1.2, 'rgba(255,166,120,0.95)');
     });
   } else {
-    const aisles = getColdAisles();
-    aisles.forEach((aisle) => {
+    getColdAisles().forEach((aisle) => {
       const centerX = toCanvas(aisle.centerX, 0).x;
       const tileBandW = Math.max((0.9 / state.roomWidth) * mapW, 10);
       for (let y = margin + 30; y < margin + mapH - 30; y += 24) {
@@ -446,10 +457,31 @@ function drawAirflowAnnotations(toCanvas, mapW, mapH, margin, racks) {
     ctx.fillText('上方回風（俯視示意）', margin + 8, margin + 16);
   }
 
-  const title = `風向模式：${airflowModes[state.airflowMode]}`;
   ctx.fillStyle = 'rgba(238,245,255,0.9)';
   ctx.font = '12px sans-serif';
-  ctx.fillText(title, margin + 8, margin + mapH + 18);
+  ctx.fillText(`風向模式：${airflowModes[state.airflowMode]}`, margin + 8, margin + mapH + 18);
+}
+
+function getStats(field) {
+  let max = -Infinity;
+  let sum = 0;
+  let hotspotCells = 0;
+  for (let y = 0; y < gridSize; y += 1) {
+    for (let x = 0; x < gridSize; x += 1) {
+      const temp = field[y][x];
+      max = Math.max(max, temp);
+      sum += temp;
+      if (temp >= HOTSPOT_THRESHOLD) hotspotCells += 1;
+    }
+  }
+  const avgTemp = sum / (gridSize * gridSize);
+  const hotspotAreaRatio = hotspotCells / (gridSize * gridSize);
+  const totalRacks = state.rackRows * state.racksPerRow;
+  const totalLoad = totalRacks * state.rackPower;
+  let risk = '低風險';
+  if (max >= 30) risk = '高風險';
+  else if (max >= 27) risk = '中風險';
+  return { maxTemp: max, avgTemp, hotspotAreaRatio, totalRacks, totalLoad, risk };
 }
 
 function drawMap(fieldData) {
@@ -464,15 +496,9 @@ function drawMap(fieldData) {
   const cellW = mapW / gridSize;
   const cellH = mapH / gridSize;
 
-  let max = -Infinity;
-  let sum = 0;
-
   for (let y = 0; y < gridSize; y += 1) {
     for (let x = 0; x < gridSize; x += 1) {
-      const temp = field[y][x];
-      max = Math.max(max, temp);
-      sum += temp;
-      ctx.fillStyle = tempColor(temp);
+      ctx.fillStyle = tempColor(field[y][x]);
       ctx.fillRect(margin + x * cellW, margin + y * cellH, cellW + 0.7, cellH + 0.7);
     }
   }
@@ -481,10 +507,7 @@ function drawMap(fieldData) {
   ctx.lineWidth = 2;
   ctx.strokeRect(margin, margin, mapW, mapH);
 
-  const toCanvas = (x, y) => ({
-    x: margin + (x / state.roomWidth) * mapW,
-    y: margin + (y / state.roomDepth) * mapH
-  });
+  const toCanvas = (x, y) => ({ x: margin + (x / state.roomWidth) * mapW, y: margin + (y / state.roomDepth) * mapH });
 
   getColdAisles().forEach((aisle) => {
     const coldLeft = toCanvas(aisle.leftX + 0.5, 0).x;
@@ -501,14 +524,12 @@ function drawMap(fieldData) {
     }
   });
 
-  const airflowDevices = getAirflowDevices();
-  airflowDevices.forEach((device) => {
+  getAirflowDevices().forEach((device) => {
     const p = toCanvas(device.x, device.y);
     const dw = (device.width / state.roomWidth) * mapW;
     const dh = (device.depth / state.roomDepth) * mapH;
     ctx.fillStyle = 'rgba(170, 176, 187, 0.88)';
     ctx.strokeStyle = 'rgba(242, 245, 255, 0.8)';
-    ctx.lineWidth = 1;
     ctx.fillRect(p.x - dw / 2, p.y - dh / 2, dw, dh);
     ctx.strokeRect(p.x - dw / 2, p.y - dh / 2, dw, dh);
     ctx.fillStyle = 'rgba(20, 25, 34, 0.95)';
@@ -522,75 +543,150 @@ function drawMap(fieldData) {
     const rh = (rack.width / state.roomDepth) * mapH;
     ctx.fillStyle = 'rgba(20, 20, 24, 0.95)';
     ctx.strokeStyle = 'rgba(214, 224, 255, 0.6)';
-    ctx.lineWidth = 1;
     ctx.fillRect(p.x - rw / 2, p.y - rh / 2, rw, rh);
     ctx.strokeRect(p.x - rw / 2, p.y - rh / 2, rw, rh);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.lineWidth = 1.1;
-    const frontEdgeX = p.x - (rack.frontDirX * rw) / 2;
-    ctx.beginPath();
-    ctx.moveTo(frontEdgeX, p.y - rh / 2 + 2);
-    ctx.lineTo(frontEdgeX, p.y + rh / 2 - 2);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(245,250,255,0.95)';
-    ctx.beginPath();
-    ctx.moveTo(frontEdgeX, p.y);
-    ctx.lineTo(frontEdgeX + rack.frontDirX * 6, p.y - 3);
-    ctx.lineTo(frontEdgeX + rack.frontDirX * 6, p.y + 3);
-    ctx.closePath();
-    ctx.fill();
   });
 
   drawAirflowAnnotations(toCanvas, mapW, mapH, margin, racks);
+}
 
-  let hotspotCells = 0;
-  for (let y = 1; y < gridSize - 1; y += 1) {
-    for (let x = 1; x < gridSize - 1; x += 1) {
-      if (field[y][x] >= HOTSPOT_THRESHOLD) {
-        hotspotCells += 1;
-        if ((x + y) % 6 === 0) {
-          const px = margin + x * cellW;
-          const py = margin + y * cellH;
-          ctx.fillStyle = 'rgba(255, 72, 72, 0.85)';
-          ctx.beginPath();
-          ctx.arc(px, py, 2.6, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
+function isoProject(x, y, z = 0) {
+  const scale = 18;
+  const ox = 450;
+  const oy = 440;
+  return {
+    x: ox + (x - y) * scale,
+    y: oy + (x + y) * scale * 0.52 - z * scale
+  };
+}
+
+function tempAt(field, x, y) {
+  const gx = clamp(Math.round((x / state.roomWidth) * (gridSize - 1)), 0, gridSize - 1);
+  const gy = clamp(Math.round((y / state.roomDepth) * (gridSize - 1)), 0, gridSize - 1);
+  return field[gy][gx];
+}
+
+function poly(points, cls, fill) {
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  p.setAttribute('points', points.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(' '));
+  if (cls) p.setAttribute('class', cls);
+  if (fill) p.setAttribute('fill', fill);
+  return p;
+}
+
+function addIsoArrow(group, from, to, color) {
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', from.x);
+  line.setAttribute('y1', from.y);
+  line.setAttribute('x2', to.x);
+  line.setAttribute('y2', to.y);
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '3');
+  line.setAttribute('marker-end', `url(${color.includes('66') ? '#arrowHot' : '#arrowCold'})`);
+  group.appendChild(line);
+}
+
+function renderIso(fieldData) {
+  const { field, racks } = fieldData;
+  isoView.innerHTML = `
+    <defs>
+      <marker id="arrowCold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0,0 8,4 0,8" fill="#68c4ff"/></marker>
+      <marker id="arrowHot" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0,0 8,4 0,8" fill="#ff7b4f"/></marker>
+    </defs>
+  `;
+
+  const floor = [isoProject(0, 0, 0), isoProject(state.roomWidth, 0, 0), isoProject(state.roomWidth, state.roomDepth, 0), isoProject(0, state.roomDepth, 0)];
+  isoView.appendChild(poly(floor, '', 'rgba(36,60,95,0.55)'));
+
+  const tempLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  for (let y = 0; y < state.roomDepth; y += 2) {
+    for (let x = 0; x < state.roomWidth; x += 2) {
+      const t = tempAt(field, x + 1, y + 1);
+      tempLayer.appendChild(poly([isoProject(x, y, 0.01), isoProject(x + 2, y, 0.01), isoProject(x + 2, y + 2, 0.01), isoProject(x, y + 2, 0.01)], '', tempColor(t)));
     }
   }
+  tempLayer.setAttribute('opacity', '0.48');
+  isoView.appendChild(tempLayer);
 
-  const hotspotAreaRatio = hotspotCells / (gridSize * gridSize);
-  const avgTemp = sum / (gridSize * gridSize);
-  const maxTemp = max;
-  const totalRacks = state.rackRows * state.racksPerRow;
-  const totalLoad = totalRacks * state.rackPower;
+  const rackHeightScale = 2.2 + ((state.rackHeight - 42) / 10) * 1.2;
+  const rackGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  racks.forEach((rack) => {
+    const x0 = rack.x - rack.width / 2;
+    const x1 = rack.x + rack.width / 2;
+    const y0 = rack.y - rack.depth / 2;
+    const y1 = rack.y + rack.depth / 2;
+    const z = rackHeightScale;
+    rackGroup.appendChild(poly([isoProject(x0, y0, z), isoProject(x1, y0, z), isoProject(x1, y1, z), isoProject(x0, y1, z)], 'rack-top', '#242d3f'));
+    rackGroup.appendChild(poly([isoProject(x1, y0, 0), isoProject(x1, y1, 0), isoProject(x1, y1, z), isoProject(x1, y0, z)], 'rack-side', '#1b2230'));
+    rackGroup.appendChild(poly([isoProject(x0, y1, 0), isoProject(x1, y1, 0), isoProject(x1, y1, z), isoProject(x0, y1, z)], 'rack-front', '#11161f'));
+  });
+  isoView.appendChild(rackGroup);
 
-  let risk = '低風險';
-  if (maxTemp >= 30) risk = '高風險';
-  else if (maxTemp >= 27) risk = '中風險';
+  const aisleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  getColdAisles().forEach((aisle) => {
+    aisleGroup.appendChild(poly([isoProject(aisle.leftX + 0.4, 0.8, 0.02), isoProject(aisle.rightX - 0.4, 0.8, 0.02), isoProject(aisle.rightX - 0.4, state.roomDepth - 0.8, 0.02), isoProject(aisle.leftX + 0.4, state.roomDepth - 0.8, 0.02)], '', 'rgba(102,214,140,0.32)'));
+    if (state.airflowMode === 'underfloor') {
+      for (let y = 1.4; y < state.roomDepth - 1.1; y += 2.2) {
+        aisleGroup.appendChild(poly([isoProject(aisle.centerX - 0.34, y, 0.03), isoProject(aisle.centerX + 0.34, y, 0.03), isoProject(aisle.centerX + 0.34, y + 0.6, 0.03), isoProject(aisle.centerX - 0.34, y + 0.6, 0.03)], '', 'rgba(140,214,255,0.55)'));
+      }
+    }
+  });
+  isoView.appendChild(aisleGroup);
 
+  const anno = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const addLabel = (x, y, text) => {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', x);
+    t.setAttribute('y', y);
+    t.setAttribute('fill', '#e8f2ff');
+    t.setAttribute('font-size', '14');
+    t.textContent = text;
+    anno.appendChild(t);
+  };
+
+  if (state.airflowMode === 'underfloor') {
+    getColdAisles().forEach((aisle) => {
+      addIsoArrow(anno, isoProject(aisle.centerX, state.roomDepth * 0.25, 0.05), isoProject(aisle.centerX, state.roomDepth * 0.25, 2.3), '#68c4ff');
+      addIsoArrow(anno, isoProject(aisle.centerX + 0.5, state.roomDepth * 0.55, 1.2), isoProject(aisle.centerX + 0.5, state.roomDepth * 0.55, 3.5), '#ff7b4f66');
+    });
+    const p = isoProject(state.roomWidth - 1.5, state.roomDepth - 2, 3.6);
+    addLabel(p.x, p.y, '上方回風區');
+  } else if (state.airflowMode === 'sidewall') {
+    addIsoArrow(anno, isoProject(0.8, state.roomDepth * 0.3, 1.4), isoProject(4.5, state.roomDepth * 0.3, 1.4), '#68c4ff');
+    addIsoArrow(anno, isoProject(0.8, state.roomDepth * 0.6, 1.4), isoProject(4.5, state.roomDepth * 0.6, 1.4), '#68c4ff');
+    addLabel(isoProject(0.2, state.roomDepth * 0.2, 1.2).x, isoProject(0.2, state.roomDepth * 0.2, 1.2).y, '左牆 AHU / CRAH');
+    addLabel(isoProject(state.roomWidth - 1.2, state.roomDepth * 0.4, 1.2).x, isoProject(state.roomWidth - 1.2, state.roomDepth * 0.4, 1.2).y, '右側回風區');
+  } else if (state.airflowMode === 'endtoend') {
+    addIsoArrow(anno, isoProject(state.roomWidth * 0.3, 0.6, 1.2), isoProject(state.roomWidth * 0.3, state.roomDepth * 0.56, 1.2), '#68c4ff');
+    addIsoArrow(anno, isoProject(state.roomWidth * 0.6, 0.6, 1.2), isoProject(state.roomWidth * 0.6, state.roomDepth * 0.56, 1.2), '#68c4ff');
+    addLabel(isoProject(state.roomWidth * 0.46, 0.3, 1.1).x, isoProject(state.roomWidth * 0.46, 0.3, 1.1).y, '走道端送風設備');
+    addLabel(isoProject(state.roomWidth * 0.52, state.roomDepth - 0.8, 1.1).x, isoProject(state.roomWidth * 0.52, state.roomDepth - 0.8, 1.1).y, '另一端回風區');
+  } else {
+    racks.slice(0, Math.min(racks.length, 16)).forEach((rack) => {
+      addIsoArrow(anno, isoProject(rack.x - rack.frontDirX * 0.8, rack.y, 1.0), isoProject(rack.x - rack.frontDirX * 0.2, rack.y, 1.0), '#68c4ff');
+      addIsoArrow(anno, isoProject(rack.x + rack.frontDirX * 0.2, rack.y, 1.0), isoProject(rack.x + rack.frontDirX * 0.8, rack.y, 1.0), '#ff7b4f66');
+    });
+    addLabel(isoProject(state.roomWidth * 0.45, 0.5, 1.2).x, isoProject(state.roomWidth * 0.45, 0.5, 1.2).y, '前送後回（機櫃層級）');
+  }
+
+  addLabel(24, 30, `3D 示意模式：${airflowModes[state.airflowMode]}`);
+  addLabel(24, 52, `機櫃高度：${state.rackHeight}U（僅視覺比例）`);
+  isoView.appendChild(anno);
+}
+
+function renderStatsAndInsights(stats) {
   statsEl.innerHTML = [
-    ['總機櫃數', `${totalRacks}`],
-    ['總熱負載 kW', `${totalLoad.toFixed(0)} kW`],
-    ['預估最高溫', `${maxTemp.toFixed(1)} °C`],
-    ['預估平均溫', `${avgTemp.toFixed(1)} °C`],
-    ['熱點區域比例', `${(hotspotAreaRatio * 100).toFixed(1)} %`],
-    ['簡易風險等級', `${risk}`]
+    ['總機櫃數', `${stats.totalRacks}`],
+    ['總熱負載 kW', `${stats.totalLoad.toFixed(0)} kW`],
+    ['預估最高溫', `${stats.maxTemp.toFixed(1)} °C`],
+    ['預估平均溫', `${stats.avgTemp.toFixed(1)} °C`],
+    ['熱點區域比例', `${(stats.hotspotAreaRatio * 100).toFixed(1)} %`],
+    ['簡易風險等級', `${stats.risk}`]
   ]
-    .map(
-      ([label, value]) => `
-      <article class="stat-card">
-        <h3>${label}</h3>
-        <p>${value}</p>
-      </article>
-    `
-    )
+    .map(([label, value]) => `<article class="stat-card"><h3>${label}</h3><p>${value}</p></article>`)
     .join('');
 
-  renderInterpretation({ maxTemp, hotspotAreaRatio, avgTemp, risk });
+  renderInterpretation(stats);
   renderHeightCard();
 }
 
@@ -598,31 +694,21 @@ function renderInterpretation({ maxTemp, hotspotAreaRatio, avgTemp, risk }) {
   const safety = maxTemp < 27 ? '最高溫在低風險範圍。' : maxTemp <= 30 ? '最高溫接近上限，建議持續監控。' : '最高溫偏高，建議立即改善冷卻條件。';
   const hotspotText = hotspotAreaRatio > 0.06 ? '熱點範圍明顯，建議快速處理。' : hotspotAreaRatio > 0.02 ? '存在局部熱點，需優化氣流。' : '熱點區域有限。';
   const airflowText = state.airflowFactor < 0.9 ? '風量係數可能不足。' : '風量條件目前可接受。';
+  const efficiencyText = state.coolingEfficiency < 0.6 ? '冷卻效率偏弱，建議改善冷源或送風組織。' : state.coolingEfficiency <= 0.9 ? '冷卻效率落在一般範圍。' : '冷卻效率較強，溫升抑制能力較佳。';
+  const flowDetail = state.airflowFactor < 0.8 ? '風量偏低，熱點可能擴大。' : state.airflowFactor <= 1.2 ? '風量在基準範圍。' : '風量偏高，較有利帶走熱量。';
   const containmentText = state.coldAisleContainment ? '冷通道封閉已啟用，對抑制熱混流有幫助。' : '冷通道封閉未啟用，熱混流風險較高。';
-
-  const modeGuidance = {
-    underfloor: '主圖為俯視平面圖，以地板出風口 / perforated tiles 表示送風區；實際送風方向為垂直向上。',
-    sidewall: '此模式為牆側設備水平送風，箭頭由送風側牆面流向對側回風區。',
-    endtoend: '此模式為走道端送風，氣流沿走道方向推進至另一端回風區。',
-    frontback: '此模式代表機櫃層級前送後回，不代表整間機房牆面空調箱水平送風。'
-  };
-
-  const suggestions = [];
-  if (state.airflowFactor < 1.15) suggestions.push('提高風量係數');
-  if (state.rackPower > 28 || maxTemp > 30) suggestions.push('降低單櫃功率');
-  if (!state.coldAisleContainment) suggestions.push('改善冷通道封閉');
-  if (state.airflowMode !== 'underfloor' && maxTemp > 28) suggestions.push('調整出風方向');
 
   interpretationEl.innerHTML = `
     <h3>工程判讀</h3>
     <ul>
       <li>目前安全性：${safety}</li>
       <li>熱點狀況：${hotspotText}</li>
-      <li>風量判讀：${airflowText}</li>
+      <li>冷卻效率係數解讀：${efficiencyText}</li>
+      <li>風量係數解讀：${flowDetail}（${airflowText}）</li>
       <li>冷通道封閉：${containmentText}</li>
       <li>風險等級：${risk}（熱點門檻 ${HOTSPOT_THRESHOLD}°C）</li>
-      <li>氣流模式說明：${modeGuidance[state.airflowMode]}</li>
-      <li>建議動作：${suggestions.length ? suggestions.join('、') : '維持現有設定並持續監測'}</li>
+      <li>氣流模式：${airflowModes[state.airflowMode]}</li>
+      <li>目前 3D 示意僅用於視覺理解，不代表正式 CFD。</li>
       <li>平均溫度參考：${avgTemp.toFixed(1)}°C</li>
     </ul>
   `;
@@ -643,10 +729,29 @@ function renderHeightCard() {
   `;
 }
 
+function updateViewToggle() {
+  viewButtons.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.view === state.viewMode));
+  canvas.classList.toggle('is-hidden', state.viewMode !== '2d');
+  isoView.classList.toggle('is-hidden', state.viewMode !== '3d');
+}
+
+function bindViewButtons() {
+  viewButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.viewMode = btn.dataset.view;
+      updateViewToggle();
+    });
+  });
+}
+
 function update() {
   const model = buildHeatField();
   drawMap(model);
+  renderIso(model);
+  renderStatsAndInsights(getStats(model.field));
+  updateViewToggle();
 }
 
 createControls();
+bindViewButtons();
 update();
