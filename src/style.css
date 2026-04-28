@@ -208,14 +208,16 @@ canvas {
 
 .legend {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 1.35fr 1fr;
   gap: 0.8rem;
 }
 
 .chip,
 .legend-rack,
 .legend-aisle,
-.legend-hvac {
+.legend-hvac,
+.legend-tile,
+.legend-return {
   display: inline-block;
   width: 14px;
   height: 14px;
@@ -230,8 +232,27 @@ canvas {
 .chip-red { background: #f65c55; }
 .legend-rack { background: #111; width: 20px; height: 10px; }
 .legend-hvac { background: #9ca3af; width: 20px; height: 10px; border: 1px solid rgba(240,245,255,0.8); }
+.legend-return { background: rgba(170, 178, 190, 0.6); width: 20px; height: 10px; }
 .legend-aisle { background: #5ccf7a; }
-.legend-arrow { color: #fff; font-weight: 700; margin-right: 0.35rem; }
+.legend-tile {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(210, 240, 255, 0.85);
+  background:
+    linear-gradient(90deg, rgba(180, 228, 255, 0.25) 1px, transparent 1px),
+    linear-gradient(rgba(180, 228, 255, 0.25) 1px, transparent 1px),
+    rgba(86, 175, 244, 0.5);
+  background-size: 4px 4px;
+}
+.legend-arrow,
+.legend-short-arrow {
+  color: #fff;
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+.legend-short-arrow {
+  color: #ffc9a3;
+}
 
 .side-view {
   display: grid;
@@ -257,34 +278,4 @@ canvas {
   border: 1px solid #3e4f74;
   border-radius: 6px;
   font-weight: 700;
-}
-
-.height-card p {
-  margin: 0.6rem 0 0;
-  color: #d3def3;
-  font-size: 0.86rem;
-}
-
-@media (max-width: 1040px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-
-  .stats-grid {
-    grid-template-columns: repeat(2, minmax(120px, 1fr));
-  }
-
-  .legend {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .page {
-    padding: 0.8rem;
-  }
-
-  .stats-grid {
-    grid-template-columns: 1fr;
-  }
 }
