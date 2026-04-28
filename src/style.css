@@ -115,6 +115,56 @@ svg.viz-pane {
   background: radial-gradient(circle at 20% 10%, rgba(68, 115, 198, 0.25), rgba(7, 14, 29, 0.92));
 }
 
+.iso-stage {
+  aspect-ratio: 900 / 620;
+  background: radial-gradient(circle at 20% 10%, rgba(68, 115, 198, 0.25), rgba(7, 14, 29, 0.92));
+  border-radius: 8px;
+  padding: 0.55rem 0.55rem 0.7rem;
+}
+
+.scene-hint {
+  margin: 0 0 0.45rem;
+  color: #cde4ff;
+  font-size: 0.84rem;
+}
+
+.scene-3d-viewport {
+  width: 100%;
+  height: calc(100% - 2.3rem);
+  min-height: 480px;
+  perspective: 1500px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+.scene-3d-viewport:active { cursor: grabbing; }
+
+.scene-3d-inner {
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transform-origin: 50% 55%;
+  will-change: transform;
+}
+
+.scene-3d-inner svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.reset-view-btn {
+  margin-top: 0.55rem;
+  border: 1px solid #4f78b8;
+  background: #13213e;
+  color: #e7f1ff;
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
 .is-hidden { display: none !important; }
 
 .stats-grid { margin-top: 0.85rem; display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 0.7rem; }
@@ -163,4 +213,5 @@ svg.viz-pane {
   .view-toggle { width: 100%; }
   .view-btn { flex: 1; min-width: 130px; }
   .canvas-wrap { padding: 0.45rem; }
+  .scene-3d-viewport { min-height: 340px; }
 }
