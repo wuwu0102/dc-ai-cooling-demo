@@ -149,6 +149,19 @@ svg.viz-pane {
   display: block;
 }
 
+
+.three-fallback {
+  min-height: 360px;
+  border: 1px dashed #5f7fb3;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #d5e6ff;
+  background: rgba(10, 18, 34, 0.78);
+  padding: 1rem;
+}
+
 .reset-view-btn {
   margin-top: 0.55rem;
   border: 1px solid #4f78b8;
