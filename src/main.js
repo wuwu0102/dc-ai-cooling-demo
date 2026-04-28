@@ -31,8 +31,9 @@ app.innerHTML = `
               <li><span class="chip chip-green"></span>綠色：正常</li>
               <li><span class="chip chip-yellow"></span>黃色：偏熱</li>
               <li><span class="chip chip-red"></span>紅色：高溫區</li>
-              <li><span class="legend-arrow">→</span>白色箭頭：氣流方向</li>
-              <li><span class="legend-rack"></span>黑色方塊：機櫃</li>
+              <li><span class="legend-arrow">→</span>白色箭頭：主要氣流方向</li>
+              <li><span class="legend-rack"></span>黑色長方形：機櫃</li>
+              <li><span class="legend-hvac"></span>灰色設備：空調箱 / 出風設備</li>
               <li><span class="legend-aisle"></span>中央綠帶：冷通道</li>
             </ul>
           </div>
@@ -172,8 +173,8 @@ function createControls() {
 
 function rackLayout() {
   const aisleGap = state.roomWidth / (state.rackRows + 1);
-  const rackDepth = state.roomDepth / (state.racksPerRow * 2.2);
-  const rackWidth = Math.max(0.8, state.roomWidth / 24);
+  const rackWidth = 0.6;
+  const rackDepth = 1.2;
 
   const racks = [];
   for (let row = 0; row < state.rackRows; row += 1) {
@@ -193,6 +194,39 @@ function rackLayout() {
   }
 
   return racks;
+}
+
+
+function getAirflowDevices() {
+  if (state.airflowMode === 'sidewall') {
+    return [
+      { x: 0.3, y: state.roomDepth * 0.2, width: 0.5, depth: 2.4, label: 'CRAH' },
+      { x: 0.3, y: state.roomDepth * 0.5, width: 0.5, depth: 2.4, label: 'CRAH' },
+      { x: 0.3, y: state.roomDepth * 0.8, width: 0.5, depth: 2.4, label: 'CRAH' }
+    ];
+  }
+
+  if (state.airflowMode === 'endtoend') {
+    return [
+      { x: state.roomWidth * 0.2, y: 0.4, width: 2.2, depth: 0.6, label: 'CRAC' },
+      { x: state.roomWidth * 0.5, y: 0.4, width: 2.2, depth: 0.6, label: 'CRAC' },
+      { x: state.roomWidth * 0.8, y: 0.4, width: 2.2, depth: 0.6, label: 'CRAC' }
+    ];
+  }
+
+  if (state.airflowMode === 'frontback') {
+    return [
+      { x: 0.4, y: state.roomDepth * 0.2, width: 0.6, depth: 2.2, label: 'AHU' },
+      { x: 0.4, y: state.roomDepth * 0.5, width: 0.6, depth: 2.2, label: 'AHU' },
+      { x: 0.4, y: state.roomDepth * 0.8, width: 0.6, depth: 2.2, label: 'AHU' }
+    ];
+  }
+
+  return [
+    { x: state.roomWidth * 0.2, y: state.roomDepth - 0.35, width: 2.3, depth: 0.6, label: 'UF-CRAC' },
+    { x: state.roomWidth * 0.5, y: state.roomDepth - 0.35, width: 2.3, depth: 0.6, label: 'UF-CRAC' },
+    { x: state.roomWidth * 0.8, y: state.roomDepth - 0.35, width: 2.3, depth: 0.6, label: 'UF-CRAC' }
+  ];
 }
 
 function getAirflowProfile() {
@@ -328,13 +362,19 @@ function drawAirflowArrows(toCanvas, mapW, mapH, margin) {
 
   const arrows = [];
   if (mode === 'sidewall') {
-    for (let y = 0.15; y <= 0.85; y += 0.14) arrows.push([[0.05, y], [0.2, y]]);
+    for (let y = 0.18; y <= 0.82; y += 0.14) arrows.push([[0.08, y], [0.24, y]]);
   } else if (mode === 'endtoend') {
-    for (let x = 0.14; x <= 0.86; x += 0.14) arrows.push([[x, 0.07], [x, 0.22]]);
+    for (let x = 0.16; x <= 0.84; x += 0.14) arrows.push([[x, 0.08], [x, 0.24]]);
   } else if (mode === 'frontback') {
-    for (let y = 0.14; y <= 0.86; y += 0.15) arrows.push([[0.42, y], [0.58, y]]);
+    for (let y = 0.16; y <= 0.84; y += 0.14) arrows.push([[0.08, y], [0.24, y]]);
   } else {
-    for (let x = 0.14; x <= 0.86; x += 0.14) arrows.push([[x, 0.86], [x, 0.72]]);
+    for (let row = 0; row < state.rackRows - 1; row += 1) {
+      const leftX = ((row + 1) / (state.rackRows + 1)) * state.roomWidth;
+      const rightX = ((row + 2) / (state.rackRows + 1)) * state.roomWidth;
+      const coldAisleX = (leftX + rightX) / 2;
+      const ratioX = coldAisleX / state.roomWidth;
+      arrows.push([[ratioX, 0.9], [ratioX, 0.72]]);
+    }
   }
 
   arrows.forEach(([start, end]) => {
@@ -409,10 +449,38 @@ function drawMap(fieldData) {
     ctx.fillRect(coldLeft, margin, coldRight - coldLeft, mapH);
   }
 
+  const airflowDevices = getAirflowDevices();
+  airflowDevices.forEach((device) => {
+    const p = toCanvas(device.x, device.y);
+    const dw = (device.width / state.roomWidth) * mapW;
+    const dh = (device.depth / state.roomDepth) * mapH;
+    ctx.fillStyle = 'rgba(170, 176, 187, 0.88)';
+    ctx.strokeStyle = 'rgba(242, 245, 255, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.fillRect(p.x - dw / 2, p.y - dh / 2, dw, dh);
+    ctx.strokeRect(p.x - dw / 2, p.y - dh / 2, dw, dh);
+    ctx.fillStyle = 'rgba(20, 25, 34, 0.95)';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(device.label, p.x - dw / 2 + 4, p.y + 3);
+  });
+
+  if (state.airflowMode === 'underfloor') {
+    ctx.fillStyle = 'rgba(196, 203, 214, 0.55)';
+    for (let row = 0; row < state.rackRows - 1; row += 1) {
+      const leftX = ((row + 1) / (state.rackRows + 1)) * state.roomWidth;
+      const rightX = ((row + 2) / (state.rackRows + 1)) * state.roomWidth;
+      const coldAisleX = (leftX + rightX) / 2;
+      const vent = toCanvas(coldAisleX, state.roomDepth * 0.88);
+      const vw = (1.4 / state.roomWidth) * mapW;
+      const vh = (0.5 / state.roomDepth) * mapH;
+      ctx.fillRect(vent.x - vw / 2, vent.y - vh / 2, vw, vh);
+    }
+  }
+
   racks.forEach((rack) => {
     const p = toCanvas(rack.x, rack.y);
-    const rw = (rack.width / state.roomWidth) * mapW;
-    const rh = (rack.depth / state.roomDepth) * mapH;
+    const rw = (rack.depth / state.roomWidth) * mapW;
+    const rh = (rack.width / state.roomDepth) * mapH;
     ctx.fillStyle = 'rgba(20, 20, 24, 0.95)';
     ctx.strokeStyle = 'rgba(214, 224, 255, 0.5)';
     ctx.lineWidth = 1;
@@ -495,6 +563,7 @@ function renderInterpretation({ maxTemp, hotspotAreaRatio, avgTemp, risk }) {
       <li>風險等級：${risk}（熱點門檻 ${HOTSPOT_THRESHOLD}°C）</li>
       <li>建議動作：${suggestions.length ? suggestions.join('、') : '維持現有設定並持續監測'}</li>
       <li>平均溫度參考：${avgTemp.toFixed(1)}°C</li>
+      ${state.airflowMode === 'underfloor' ? '<li>送風模式：地板下送風，上方回風。平面圖以出風設備與箭頭簡化表示，實際垂直氣流需由 CFD 或現場量測確認。</li>' : ''}
     </ul>
   `;
 }
@@ -508,9 +577,9 @@ function renderHeightCard() {
       <div class="supply">Supply Air ↑</div>
       <div class="rack-box">Rack ${state.rackHeight}U</div>
       <div class="return">Return Air ←</div>
-      <div class="hot-plume">↑ 熱氣上升</div>
+      <div class="hot-plume">熱氣流上升</div>
     </div>
-    <p>機櫃高度越高，熱羽流更容易上浮，回風短路風險略升。估計風險指標：${normalizedRisk.toFixed(1)}%</p>
+    <p>機櫃高度越高，熱氣上升與回風短路風險略升。此處為簡化示意，非正式 CFD 結果。估計風險指標：${normalizedRisk.toFixed(1)}%</p>
   `;
 }
 

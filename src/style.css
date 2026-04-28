@@ -214,7 +214,8 @@ canvas {
 
 .chip,
 .legend-rack,
-.legend-aisle {
+.legend-aisle,
+.legend-hvac {
   display: inline-block;
   width: 14px;
   height: 14px;
@@ -227,7 +228,8 @@ canvas {
 .chip-green { background: #54b95f; }
 .chip-yellow { background: #ffce4f; }
 .chip-red { background: #f65c55; }
-.legend-rack { background: #111; }
+.legend-rack { background: #111; width: 20px; height: 10px; }
+.legend-hvac { background: #9ca3af; width: 20px; height: 10px; border: 1px solid rgba(240,245,255,0.8); }
 .legend-aisle { background: #5ccf7a; }
 .legend-arrow { color: #fff; font-weight: 700; margin-right: 0.35rem; }
 
