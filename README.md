@@ -1,67 +1,37 @@
-# dc-ai-cooling-demo
+# Data Center Cooling 3D Prototype
 
-Data Center AI Cooling Demo 是可部署到 GitHub Pages 的純前端靜態頁面，用來快速示範機房冷卻熱場分佈與熱點風險。
-
-> ⚠️ 本專案為「簡化 AI surrogate / 熱場示意模型，非正式 CFD 驗證」，僅供展示與概念討論使用。
-
-## Demo 功能重點
-
-- 20m x 20m（可調）機房平面熱圖（2D）與 isometric 示意（3D）切換。
-- 可調參數：機櫃排數、每排數量、每櫃功率、供風溫度、機櫃高度。
-- 四種出風模式切換：
-  - 地板下送風 / 上回風
-  - 牆側送風 / 對側回風
-  - 走道端送風 / 另一端回風
-  - 前送後回
-- 3D 示意內容：機房地板、兩排以上機櫃立體長方體、冷/熱通道、地板出風口、藍/橘箭頭、回風區與 AHU/CRAH/CRAC。
-- 溫度顏色投影（藍→綠→黃→紅）對應冷/正常/偏熱/熱區。
-
-## 係數說明
-
-### 冷卻效率係數
-
-- 冷卻效率係數代表冷卻系統抑制溫升的能力。
-- 數值越高，代表冷源、換熱、送風組織越有效，模型中的預估溫度會下降。
-- 這是簡化示意參數，不等於真實設備 COP 或 PUE。
-
-即時提示（滑桿下方）：
-
-- `< 0.6`：冷卻能力偏弱
-- `0.6 ~ 0.9`：一般
-- `> 0.9`：冷卻能力較強
-
-### 風量係數
-
-- 風量係數代表送風量相對基準值的比例。
-- `1.0` 表示基準風量；`1.5` 代表假設送風能力增加約 50%。
-- 數值越高，熱量越容易被帶走，熱點應減少。
-- 此處為示意參數，非正式 CFM 計算。
-
-即時提示（滑桿下方）：
-
-- `< 0.8`：風量偏低
-- `0.8 ~ 1.2`：基準範圍
-- `> 1.2`：風量偏高
-
-## 3D 示意判讀提醒
-
-- 3D 僅用於氣流方向與冷熱區的視覺理解。
-- 不代表正式 CFD，不能直接當作工程驗證結論。
-- 若需正式設計，仍應搭配 CFD 或現場量測。
-
-## 本機開啟方式（無需 build）
-
-```bash
-python -m http.server 8080
-```
-
-開啟 `http://localhost:8080/`。
-
-## GitHub Pages 部署（維持純靜態）
-
-本 repo 既有 `.github/workflows/deploy.yml` 可直接部署 repo 根目錄靜態檔案，不需 `npm install` 或 `npm run build`。
+Vite + Three.js 工程版機房冷卻可視化 Prototype，可用於主管簡報、面試展示與工程提案。
 
 ## 技術棧
+- Vite 5
+- Three.js (npm)
+- OrbitControls
+- GitHub Actions + GitHub Pages
 
-- HTML / CSS / JavaScript
-- GitHub Pages (Actions)
+## 功能
+- 2D 熱圖：保留冷熱分佈視覺化
+- 3D Viewer：真實 WebGL 場景（非 CSS 假 3D）
+- 參數面板：機房尺寸、機櫃數、功率、供風溫度、冷卻效率、風量
+- 統計卡片與工程判讀
+- 手機/桌機響應式
+- 3D 操作：旋轉、縮放、平移（OrbitControls）
+
+## 開發
+```bash
+npm install
+npm run dev
+```
+
+## 打包
+```bash
+npm run build
+npm run preview
+```
+
+## GitHub Pages
+已配置 `.github/workflows/deploy.yml` 於 `main` 分支 push 後執行：
+1. `npm ci`
+2. `npm run build`
+3. 部署 `dist/` 到 GitHub Pages
+
+> `vite.config.js` 已設定 `base: '/dc-ai-cooling-demo/'` 以符合 repo 名稱。
